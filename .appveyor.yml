@@ -92,16 +92,19 @@ after_build:
 
 test_script:
 - ps: |
-    $env:path += ";$env:pgroot\bin"
-    Add-AppveyorMessage "Copying the extension files to the PostgreSQL directories." -Category Information
-    Expand-Archive -LiteralPath $zip -DestinationPath $env:pgroot
-    if ("$env:pg" -notmatch "\.") {
-      Set-Content -path pg.pass -value "$env:pgpassword" -encoding ascii
-      initdb -A md5 -U "$env:PGUSER" --pwfile=pg.pass C:\pgdata
-      pg_ctl register -S demand -N "postgresql$env:x64-$env:pgversion" -D c:\pgdata
+    # ODBC does not play nice with mixed-bitness
+    if ("$env:PLATFORM" -eq "x64") {
+      $env:path += ";$env:pgroot\bin"
+      Add-AppveyorMessage "Copying the extension files to the PostgreSQL directories." -Category Information
+      Expand-Archive -LiteralPath $zip -DestinationPath $env:pgroot
+      if ("$env:pg" -notmatch "\.") {
+        Set-Content -path pg.pass -value "$env:pgpassword" -encoding ascii
+        initdb -A md5 -U "$env:PGUSER" --pwfile=pg.pass C:\pgdata
+        pg_ctl register -S demand -N "postgresql$env:x64-$env:pgversion" -D c:\pgdata
+      }
+      Start-Service postgresql$env:x64-$env:pgversion
+      & .\test\appveyor_tests.ps1
     }
-    Start-Service postgresql$env:x64-$env:pgversion
-    & .\test\appveyor_tests.ps1
 
 artifacts:
 - path: '*.zip'
