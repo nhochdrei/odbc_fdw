@@ -225,6 +225,7 @@ static void check_return(SQLRETURN ret, char *msg, SQLHANDLE handle, SQLSMALLINT
 static void odbcConnStr(StringInfoData *conn_str, odbcFdwOptions* options);
 static char* get_schema_name(odbcFdwOptions *options);
 static inline bool is_blank_string(const char *s);
+static inline bool is_count_disabled(const odbcFdwOptions* options);
 static Oid oid_from_server_name(char *serverName);
 
 /*
@@ -276,6 +277,13 @@ empty_string_if_null(char *string)
 {
 	static const char* empty_string = "";
 	return string == NULL ? empty_string : string;
+}
+
+static const char disable_count_magic[] = "__NOCOUNT";
+
+static inline bool is_count_disabled(const odbcFdwOptions* options)
+{
+	return options->sql_query && strcmp(options->sql_query, disable_count_magic) == 0;
 }
 
 static const char   odbc_attribute_prefix[] = "odbc_";
@@ -847,6 +855,12 @@ odbcGetTableSize(odbcFdwOptions* options, unsigned int *size)
 
 	const char* schema_name;
 
+	if (is_count_disabled(options))
+	{
+		*size = 0;
+		return;
+	}
+
 	schema_name = get_schema_name(options);
 
 	odbc_connection(options, &env, &dbc);
@@ -981,6 +995,12 @@ odbc_table_size(PG_FUNCTION_ARGS)
 	Oid serverOid = oid_from_server_name(serverName);
 	odbcFdwOptions options;
 	odbcGetOptions(serverOid, tableOptions, &options);
+
+	if (is_count_disabled(&options))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("counting is disabled")));
+
 	odbcGetTableSize(&options, &tableSize);
 
 	PG_RETURN_INT32(tableSize);
@@ -1005,6 +1025,12 @@ odbc_query_size(PG_FUNCTION_ARGS)
 	Oid serverOid = oid_from_server_name(serverName);
 	odbcFdwOptions options;
 	odbcGetOptions(serverOid, queryOptions, &options);
+
+	if (is_count_disabled(&options))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("counting is disabled")));
+
 	odbcGetTableSize(&options, &querySize);
 
 	PG_RETURN_INT32(querySize);
@@ -1245,6 +1271,9 @@ static void odbcGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid fo
 	/* Fetch the foreign table options */
 	odbcGetTableOptions(foreigntableid, &options);
 
+	if (is_count_disabled(&options))
+		return; /* Do not change the query planner's estimates */
+
 	odbcGetTableSize(&options, &table_size);
 
 	baserel->rows = table_size;
@@ -1253,15 +1282,7 @@ static void odbcGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid fo
 
 static void odbcEstimateCosts(PlannerInfo *root, RelOptInfo *baserel, Cost *startup_cost, Cost *total_cost, Oid foreigntableid)
 {
-	unsigned int table_size   = 0;
-	odbcFdwOptions options;
-
 	elog_debug("----> starting %s", __func__);
-
-	/* Fetch the foreign table options */
-	odbcGetTableOptions(foreigntableid, &options);
-
-	odbcGetTableSize(&options, &table_size);
 
 	*startup_cost = 25;
 
@@ -1815,11 +1836,11 @@ odbcExplainForeignScan(ForeignScanState *node, ExplainState *es)
 
 	festate = (odbcFdwExecutionState *) node->fdw_state;
 
-	odbcGetTableSize(&(festate->options), &table_size);
-
 	/* Suppress file size if we're not showing cost details */
 	if (es->costs)
 	{
+		odbcGetTableSize(&(festate->options), &table_size);
+
 #if PG_VERSION_NUM >= 110000
 		ExplainPropertyInteger("Foreign Table Size", "b", table_size, es);
 #else
