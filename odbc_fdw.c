@@ -401,14 +401,6 @@ static char* get_schema_name(odbcFdwOptions *options)
 	return options->schema;
 }
 
-#ifdef WIN32
-static BOOL CALLBACK enum_window_helper(HWND hwnd, LPARAM lparam)
-{
-	*((SQLHWND*)lparam) = (SQLHWND)hwnd;
-	return FALSE;
-}
-#endif
-
 /*
  * Establish ODBC connection
  */
@@ -419,7 +411,6 @@ odbc_connection(odbcFdwOptions* options, SQLHENV *env, SQLHDBC *dbc)
 	SQLCHAR OutConnStr[1024];
 	SQLSMALLINT OutConnStrLen;
 	SQLRETURN ret;
-	SQLHWND window;
 
 	odbcConnStr(&conn_str, options);
 
@@ -430,15 +421,8 @@ odbc_connection(odbcFdwOptions* options, SQLHENV *env, SQLHDBC *dbc)
 
 	/* Allocate a connection handle */
 	SQLAllocHandle(SQL_HANDLE_DBC, *env, dbc);
-
-	window = NULL;
-#ifdef WIN32
-	/* Obtain a window for broken drivers */
-	EnumWindows(&enum_window_helper, (LPARAM)&window);
-#endif
-
 	/* Connect to the DSN */
-	ret = SQLDriverConnect(*dbc, window, (SQLCHAR *) conn_str.data, SQL_NTS,
+	ret = SQLDriverConnect(*dbc, NULL, (SQLCHAR *) conn_str.data, SQL_NTS,
 	                       OutConnStr, 1024, &OutConnStrLen, SQL_DRIVER_COMPLETE);
 	check_return(ret, "Connecting to driver", dbc, SQL_HANDLE_DBC);
 	elog_debug("Connection opened");
