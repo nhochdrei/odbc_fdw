@@ -13,10 +13,10 @@ environment:
   MYSQL_PWD: Password12!
   SQLCMDPASSWORD: Password12!
   matrix:
-  - pg: 10.12-1
+  - pg: 10.12-3
     PlatformToolset: v141
     platform: x86
-  - pg: 10.12-1
+  - pg: 10.12-3
     PlatformToolset: v141
     configuration: Debug
     platform: x86
